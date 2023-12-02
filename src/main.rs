@@ -9,17 +9,8 @@ use slint::TimerMode;
 
 use vec3::Vec3;
 
-struct Ray {
-    origin : Vec3,
-    dir : Vec3,
-}
-
-impl Ray {
-
-    fn at( &self, t : f32 ) -> Vec3 {
-        self.origin + (self.dir * t)
-    }
-}
+pub mod ray;
+use ray::Ray;
 
 enum TileStatus {
     Clear, // Reset or clear the tile
@@ -37,6 +28,56 @@ struct Tile {
     pixels : Option<SharedPixelBuffer<Rgb8Pixel>>,
 }
 
+struct Scene {
+
+    // camera settings
+    camera_center : Vec3,
+    viewport_u : Vec3,
+    viewport_v : Vec3,
+    pixel_delta_u : Vec3,
+    pixel_delta_v : Vec3,
+    pixel00_loc : Vec3,
+}
+
+impl Scene {
+
+    pub fn new( width: u32, height: u32 ) -> Scene
+    {
+        let fwidth = width as f32;
+        let fheight = height as f32;
+        let aspect = fheight / fwidth;
+    
+        // camera
+        let focal_length  :f32   = 1.0;
+        let viewport_height : f32 = 2.0;
+        let viewport_width = viewport_height / aspect;
+        let camera_center = Vec3::ZERO;
+        println!("setup_camera: Aspect {} w {} h {}", aspect, viewport_width, viewport_height );
+    
+        let viewport_u = Vec3::new( viewport_width, 0.0, 0.0 );
+        let viewport_v = Vec3::new( 0.0, -viewport_height, 0.0);
+    
+        // upper left
+        let viewport_upper_left = camera_center
+                            - Vec3::new( 0.0,0.0, focal_length )
+                            - viewport_u/2.0
+                            - viewport_v/2.0;
+        let pixel_delta_u = viewport_u / fwidth;
+        let pixel_delta_v = viewport_v / fheight;
+    
+        let pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
+
+        // Create the scene object
+        Scene {
+            camera_center : camera_center,
+            viewport_u : viewport_u,
+            viewport_v : viewport_v,
+            pixel_delta_u : pixel_delta_u,
+            pixel_delta_v : pixel_delta_v,
+            pixel00_loc : pixel00_loc,
+        }    
+    }
+}
 
 
 fn mk_col32( r : f32, g : f32, b : f32 ) -> u32 {
@@ -140,7 +181,7 @@ fn rand_hash( x : f32, y : f32, z : f32 ) -> f32{
         &Vec3::new( 1.0, 113.0, 21.5) ).sin() * 43758.5453123 ).fract()
 }
 
-fn render_tile( tile : &mut Tile ) {
+fn render_tile( scene : &Scene, tile : &mut Tile ) {
     let mut tile_px = SharedPixelBuffer::<Rgb8Pixel>::new( tile.w, tile.h);
     
     let buffer = tile_px.make_mut_bytes();
@@ -154,10 +195,23 @@ fn render_tile( tile : &mut Tile ) {
         rand_hash(tile.x as f32, tile.y as f32, 2.0) );
 
     for j in 0..tile.h {                
+        let jj = (tile.y + j) as f32;
         for i in 0..tile.w {
-
-            let ndx : usize = usize::try_from((j*tile.w+i) * 3).unwrap();
             
+            let ii = (tile.x + i) as f32;
+            let ndx : usize = usize::try_from((j*tile.w+i) * 3).unwrap();
+
+            let pixel_center = 
+                        scene.pixel00_loc + (ii * scene.pixel_delta_u) + (jj * scene.pixel_delta_v);
+            let ray_direction = pixel_center - scene.camera_center;
+
+            let ray = Ray { 
+                            origin : scene.camera_center, 
+                            dir : ray_direction,
+                         };
+
+            let col = ray_color( &ray );
+
 
             buffer[ndx+0] = (col.x * 255.0) as u8;
             buffer[ndx+1] = (col.y * 255.0) as u8;
@@ -220,13 +274,18 @@ fn main() {
     // Wrap the todo channel in an Arc and a Mutex
     let rx_todo_tiles = Arc::new(Mutex::new(rx_todo_tiles));
 
+    // Set up the scene class. No mutex needed since we won't ever modify it from a render thread.
+    let scene = Arc::new( Scene::new( W, H ) );
+    
+
+
     // spawn a thread to render the tiles
     let num_threads = 8;
     for i in 0..num_threads {
         let tx_done_tiles2 = tx_done_tiles.clone();
 
         let rx_todo_clone = Arc::clone(&rx_todo_tiles);
-        
+        let scene_clone = scene.clone();
         thread::spawn( move || {
 
             let mut rx_todo = rx_todo_clone.lock().unwrap();
@@ -248,8 +307,9 @@ fn main() {
                     h : tile.h,
                     pixels: None
                 };
-
-                render_tile( &mut rndrTile );
+                
+                let scene : &Scene = Arc::as_ref( &scene_clone );
+                render_tile( scene, &mut rndrTile );
 
                 thread::sleep(std::time::Duration::from_millis(250));      
                 //println!( $"Rendered tile, pixels is {")
