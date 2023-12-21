@@ -12,10 +12,15 @@ use vec3::Vec3;
 pub mod ray;
 use ray::Ray;
 
+pub mod scene;
+use scene::Scene;
+
+#[warn(non_snake_case)]
+
 enum TileStatus {
     Clear, // Reset or clear the tile
-    Rendering,
-    Denoising,
+    //Rendering,
+    //Denoising,
     Finished
 } 
 
@@ -24,60 +29,10 @@ struct Tile {
     y : u32,
     w : u32,
     h : u32,
-    status : TileStatus,
+    //status : TileStatus,
     pixels : Option<SharedPixelBuffer<Rgb8Pixel>>,
 }
 
-struct Scene {
-
-    // camera settings
-    camera_center : Vec3,
-    viewport_u : Vec3,
-    viewport_v : Vec3,
-    pixel_delta_u : Vec3,
-    pixel_delta_v : Vec3,
-    pixel00_loc : Vec3,
-}
-
-impl Scene {
-
-    pub fn new( width: u32, height: u32 ) -> Scene
-    {
-        let fwidth = width as f32;
-        let fheight = height as f32;
-        let aspect = fheight / fwidth;
-    
-        // camera
-        let focal_length  :f32   = 1.0;
-        let viewport_height : f32 = 2.0;
-        let viewport_width = viewport_height / aspect;
-        let camera_center = Vec3::ZERO;
-        println!("setup_camera: Aspect {} w {} h {}", aspect, viewport_width, viewport_height );
-    
-        let viewport_u = Vec3::new( viewport_width, 0.0, 0.0 );
-        let viewport_v = Vec3::new( 0.0, -viewport_height, 0.0);
-    
-        // upper left
-        let viewport_upper_left = camera_center
-                            - Vec3::new( 0.0,0.0, focal_length )
-                            - viewport_u/2.0
-                            - viewport_v/2.0;
-        let pixel_delta_u = viewport_u / fwidth;
-        let pixel_delta_v = viewport_v / fheight;
-    
-        let pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
-
-        // Create the scene object
-        Scene {
-            camera_center : camera_center,
-            viewport_u : viewport_u,
-            viewport_v : viewport_v,
-            pixel_delta_u : pixel_delta_u,
-            pixel_delta_v : pixel_delta_v,
-            pixel00_loc : pixel00_loc,
-        }    
-    }
-}
 
 
 fn mk_col32( r : f32, g : f32, b : f32 ) -> u32 {
@@ -122,46 +77,15 @@ fn hit_sphere( center : &Vec3, radius : f32, ray : &Ray ) -> f32 {
 fn do_render(width: u32, height: u32, buffer: &mut [u8]) {
     
 
-    let fwidth = width as f32;
-    let fheight = height as f32;
-    let aspect = fheight / fwidth;
-
-    // camera
-    let focal_length  :f32   = 1.0;
-    let viewport_height : f32 = 2.0;
-    let viewport_width = viewport_height / aspect;
-    let camera_center = Vec3::ZERO;
-    println!("Aspect {} w {} h {}", aspect, viewport_width, viewport_height );
-
-    let viewport_u = Vec3::new( viewport_width, 0.0, 0.0 );
-    let viewport_v = Vec3::new( 0.0, -viewport_height, 0.0);
-
-    // upper left
-    let viewport_upper_left = camera_center
-                        - Vec3::new( 0.0,0.0, focal_length )
-                        - viewport_u/2.0
-                        - viewport_v/2.0;
-    let pixel_delta_u = viewport_u / fwidth;
-    let pixel_delta_v = viewport_v / fheight;
-
-    let pixel00_loc = viewport_upper_left + 0.5 * (pixel_delta_u + pixel_delta_v);
+    let scene = Scene::new( width, height );
 
 
-    for j in 0..height {
-        let jj = j as f32;
-        //println!("row {j}");        
-        for i in 0..width {
-            let ii = i as f32;
+    for j in 0..height {        
+        for i in 0..width {            
             let ndx : usize = usize::try_from((j*width+i) * 3).unwrap();
 
-            let pixel_center = 
-                        pixel00_loc + (ii * pixel_delta_u) + (jj * pixel_delta_v);
-            let ray_direction = pixel_center - camera_center;
-
-            let ray = Ray { 
-                            origin : camera_center, 
-                            dir : ray_direction,
-                         };
+            
+            let ray = scene.ray_at_pixel_loc( i as i32, j as i32);
 
             let col = ray_color( &ray );
 
@@ -189,27 +113,17 @@ fn render_tile( scene : &Scene, tile : &mut Tile ) {
     // "random" color per tile
     // return fract(sin(dot(p, vec2(1.0,113.0)))*43758.5453123);
 
-    let col = Vec3::new( 
-        rand_hash(tile.x as f32, tile.y as f32, 0.0),
-        rand_hash(tile.x as f32, tile.y as f32, 1.0),
-        rand_hash(tile.x as f32, tile.y as f32, 2.0) );
+    // let col = Vec3::new( 
+    //     rand_hash(tile.x as f32, tile.y as f32, 0.0),
+    //     rand_hash(tile.x as f32, tile.y as f32, 1.0),
+    //     rand_hash(tile.x as f32, tile.y as f32, 2.0) );
 
     for j in 0..tile.h {                
-        let jj = (tile.y + j) as f32;
         for i in 0..tile.w {
             
-            let ii = (tile.x + i) as f32;
             let ndx : usize = usize::try_from((j*tile.w+i) * 3).unwrap();
 
-            let pixel_center = 
-                        scene.pixel00_loc + (ii * scene.pixel_delta_u) + (jj * scene.pixel_delta_v);
-            let ray_direction = pixel_center - scene.camera_center;
-
-            let ray = Ray { 
-                            origin : scene.camera_center, 
-                            dir : ray_direction,
-                         };
-
+            let ray = scene.ray_at_pixel_loc( (tile.x + i) as i32, (tile.y + j) as i32);
             let col = ray_color( &ray );
 
 
@@ -260,7 +174,7 @@ fn main() {
                     y : tj * tile_sz,
                     w : std::cmp::min( tile_sz, W.checked_sub( (ti+0)*tile_sz).unwrap_or(0) ),
                     h : std::cmp::min( tile_sz, H.checked_sub( (tj+0)*tile_sz).unwrap_or(0) ),
-                    status: TileStatus::Clear,
+                    //status: TileStatus::Clear,
                     pixels : None
             };
 
@@ -300,7 +214,7 @@ fn main() {
                 // render tile
                 // TODO: reuse tile?
                 let mut rndrTile = Tile { 
-                    status : TileStatus::Finished,
+                    // status : TileStatus::Finished,
                     x : tile.x, 
                     y : tile.y,
                     w : tile.w,
@@ -311,7 +225,7 @@ fn main() {
                 let scene : &Scene = Arc::as_ref( &scene_clone );
                 render_tile( scene, &mut rndrTile );
 
-                thread::sleep(std::time::Duration::from_millis(250));      
+                //thread::sleep(std::time::Duration::from_millis(250));      
                 //println!( $"Rendered tile, pixels is {")
                 
                 tx_done_tiles2.send( rndrTile );
@@ -323,8 +237,6 @@ fn main() {
         });
     }
 
-
-    
 
     // Set up a timer to update the tiles
     let ui_handle = main_window.as_weak();
@@ -345,10 +257,9 @@ fn main() {
             
             while let Ok(tile) = rx_done_tiles.try_recv() {
 
-                if (tile.pixels.is_some() )
-                {
-                    let upd_buffer = pixel_buffer.clone();                
-                    let stride = upd_buffer.width();
+                if tile.pixels.is_some() 
+                {                    
+                    let stride = pixel_buffer.width();
                     let buff = pixel_buffer.make_mut_bytes();
 
                     let mut tileImg = tile.pixels.unwrap();
@@ -366,11 +277,12 @@ fn main() {
                             buff[ ndx + 0 ] = tilebuf[  tile_ndx + 0 ];
                             buff[ ndx + 1 ] = tilebuf[  tile_ndx + 1 ];
                             buff[ ndx + 2 ] = tilebuf[  tile_ndx + 2 ];
-
                         }
                     }
 
+                    let upd_buffer = pixel_buffer.clone();                
                     let image = Image::from_rgb8( upd_buffer );
+
                     // let image = Image::from_rgb8( tile.pixels.unwrap() );
                     ui.set_render_img( image );      
                 }
