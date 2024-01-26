@@ -33,7 +33,63 @@ struct Tile {
     pixels : Option<SharedPixelBuffer<Rgb8Pixel>>,
 }
 
+pub struct HitRecord {
+    p : Vec3,
+    normal : Vec3,
+    t: f32,
+    front_face : bool,
+}
 
+pub trait Hittable {
+    fn hit( &self, ray : Ray, ray_tmin : f32, ray_tmax : f32 ) -> Option<HitRecord>;
+}
+
+pub struct Sphere {
+    center : Vec3,
+    radius : f32,
+}
+
+fn face_normal( ray : Ray, out_n : Vec3 ) -> Vec3 
+{
+    let front_ Vec3::dot( ray.dir, out_n ) < 0.0 { }
+}
+
+impl Hittable for Sphere {
+    fn hit( &self, ray : Ray, ray_tmin : f32, ray_tmax : f32 ) -> Option<HitRecord> {
+        let oc = ray.origin - self.center;
+        let a = ray.dir.length_squared();
+        let half_b = Vec3::dot( &oc, &ray.dir );
+        let c = oc.length_squared() - self.radius*self.radius;
+
+        let discriminant = half_b*half_b - a*c;
+        if (discriminant < 0.0) {
+            return None;
+        }
+        let sqrtd = discriminant.sqrt();
+
+        let root = (-half_b - sqrtd) / a;
+        if (root <= ray_tmin || ray_tmax <= root) {
+            let root = (-half_b + sqrtd) / a;
+            if (root <= ray_tmin || ray_tmax <= root) {
+                return None;
+            }
+        }
+
+        
+
+        let p = ray.at(  root );
+        let outward_n =  (p - self.center) / self.radius;
+        let mut front_face : bool = 
+
+        Some(HitRecord {
+            t : root,
+            p : p,
+            front_face : dot( )
+            normal:
+            
+        })
+    }
+}
 
 fn mk_col32( r : f32, g : f32, b : f32 ) -> u32 {
     let r = ((r * 255.0) as u32) & 0xff;
@@ -61,16 +117,20 @@ fn ray_color( ray: &Ray ) -> Vec3 {
 
 fn hit_sphere( center : &Vec3, radius : f32, ray : &Ray ) -> f32 {
     let oc = ray.origin - center;
-    let a = Vec3::dot( &ray.dir, &ray.dir );
-    let b = 2.0 * Vec3::dot( &oc, &ray.dir );
-    let c = Vec3::dot( &oc, &oc ) - radius*radius;
-    let discriminant = b*b - 4.0*a*c;
+    let a = ray.dir.length_squared();
+    //let a = Vec3::dot( &ray.dir, &ray.dir );
+    let half_b = Vec3::dot( &oc, &ray.dir );
+    //let c =  Vec3::dot( &oc, &oc ) - radius*radius;
+    let c = oc.length_squared() - radius*radius;
+    //let discriminant = b*b - 4.0*a*c;
+    let discriminant = half_b*half_b - a*c;
 
     
     if discriminant < 0.0 {
         return -1.0;
     } else {
-        return (-b - discriminant.sqrt()) / (2.0*a);
+        //return (-b - discriminant.sqrt()) / (2.0*a);
+        return (-half_b - discriminant.sqrt()) / a;
     }
 }
 
@@ -225,7 +285,7 @@ fn main() {
                 let scene : &Scene = Arc::as_ref( &scene_clone );
                 render_tile( scene, &mut rndrTile );
 
-                //thread::sleep(std::time::Duration::from_millis(250));      
+                thread::sleep(std::time::Duration::from_millis(250));      
                 //println!( $"Rendered tile, pixels is {")
                 
                 tx_done_tiles2.send( rndrTile );
@@ -295,12 +355,38 @@ fn main() {
 }
 
 slint::slint! {
+    import { VerticalBox, HorizontalBox, Button } from "std-widgets.slint";
+
     export component MainWindow inherits Window {
         in property render-img <=> render.source;
 
-        render := Image {
-            // width: 320px;
-            // height: 200px;
+        VerticalBox {
+
+            spacing: 0;
+            padding: 0;
+
+            Rectangle {
+                border-width: 1px;
+                border-color: red;
+                background: black;
+                height: 50px;                
+                HorizontalBox {
+                    padding: 2px;
+                    spacing: 0px;                    
+                    alignment: space-between;
+                    Button { text: "scene"; width: 40px;}                    
+                    Button { text: "view"; }                    
+                    Button { text: "insp"; }
+                }
+            }
+            
+            VerticalBox {
+                render := Image {                
+                    // width: 320px;
+                    // height: 200px;
+                }
+            }
+
         }
     }
 }
