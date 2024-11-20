@@ -49,10 +49,10 @@ pub struct Sphere {
     radius : f32,
 }
 
-fn face_normal( ray : Ray, out_n : Vec3 ) -> Vec3 
-{
-    let front_ Vec3::dot( ray.dir, out_n ) < 0.0 { }
-}
+// fn face_normal( ray : Ray, out_n : Vec3 ) -> Vec3 
+// {
+//     let front_ Vec3::dot( ray.dir, out_n ) < 0.0 { }
+// }
 
 impl Hittable for Sphere {
     fn hit( &self, ray : Ray, ray_tmin : f32, ray_tmax : f32 ) -> Option<HitRecord> {
@@ -79,13 +79,21 @@ impl Hittable for Sphere {
 
         let p = ray.at(  root );
         let outward_n =  (p - self.center) / self.radius;
-        let mut front_face : bool = 
+        let mut front_face : bool;
+        let mut nrm;
+        if (Vec3::dot( &ray.dir, &outward_n ) > 0.0) {
+            nrm = -outward_n;
+            front_face = false;
+        } else {
+            nrm = outward_n;
+            front_face = true;
+        }
 
         Some(HitRecord {
             t : root,
             p : p,
-            front_face : dot( )
-            normal:
+            front_face : front_face,
+            normal: nrm
             
         })
     }
@@ -185,7 +193,6 @@ fn render_tile( scene : &Scene, tile : &mut Tile ) {
 
             let ray = scene.ray_at_pixel_loc( (tile.x + i) as i32, (tile.y + j) as i32);
             let col = ray_color( &ray );
-
 
             buffer[ndx+0] = (col.x * 255.0) as u8;
             buffer[ndx+1] = (col.y * 255.0) as u8;
